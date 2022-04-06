@@ -1,0 +1,172 @@
+---
+title: "Data preparation"
+output:
+  pdf_document: default
+---
+
+# Instructions
+
+- You only need to submit the .Rmd of this file, not a PDF.
+
+- You should __comment__ your code clearly to show what you've done to prepare the data.
+
+- The purpose of this file is to use the data in the `data-raw` folder to create the data you will use in the report. The data you will use in the report should be saved in the `data` folder. It is good professional practice to make sure you're never directly modifying your raw data, but instead creating new datasets based on merges/manipulations that you need to reuse.
+
+- Make sure you've taken a look at the hints for the web scraping and census API. 
+
+- You may find the `write_rds()` function from the `readr` package helpful (it is loaded as part of the `tidyverse`).
+
+- You do not need to keep the structure below.
+
+# Set up
+
+```{r, libraries}
+# Set up any libraries you need
+library(haven)
+library(tidyverse)
+library(polite)
+library(rvest)
+library(cancensus)
+```
+
+# Loading client data
+
+```{r, cache=TRUE}
+# loading client data
+cust_dev <- read_rds("data-raw/cust_dev.Rds")
+cust_sleep <- read_rds("data-raw/cust_sleep.Rds")
+customer <- read_rds("data-raw/customer.Rds")
+device <- read_rds("data-raw/device.Rds")
+```
+
+# Getting external data
+
+## Web scraping industry data
+
+```{r, cache=TRUE}
+url <- "https://fitnesstrackerinfohub.netlify.app"
+
+# Make sure this code is updated appropriately to provide 
+# informative user_agent details
+target <- bow(url,
+              user_agent = "jiaheli.li@mail.utoronto.ca for STA303/1002 project",
+              force = TRUE)
+
+# Any details provided in the robots text on crawl delays and 
+# which agents are allowed to scrape
+target
+
+html <- scrape(target)
+
+device_data <- html %>% 
+  html_elements("table") %>% 
+  html_table() %>% 
+  pluck(1) # added, in case you're getting a list format
+
+# save a copy to save some time in the next session
+write_rds(device_data, "data-raw/scraped-dev.Rds")
+```
+
+# Census API
+
+```{r, cache=TRUE}
+options(cancensus.api_key = "CensusMapper_965c2e7fc767203b7b22aa2e948e58cf",
+        cancensus.cache_path = "cache") # this sets a folder for your cache
+
+
+# get all regions as at the 2016 Census (2020 not up yet)
+regions <- list_census_regions(dataset = "CA16")
+
+regions_filtered <-  regions %>% 
+  filter(level == "CSD") %>% # Figure out what CSD means in Census data
+  as_census_region_list()
+
+# This can take a while
+# We want to get household median income
+census_data_csd <- get_census(dataset='CA16', regions = regions_filtered,
+                          vectors=c("v_CA16_2397"), 
+                          level='CSD', geo_format = "sf")
+
+# Simplify to only needed variables
+median_income <- census_data_csd %>% 
+  as_tibble() %>% 
+  dplyr::select(CSDuid = GeoUID, contains("median"), Population) %>% 
+  mutate(CSDuid = parse_number(CSDuid)) %>% 
+  rename(hhld_median_inc = 2)
+
+# save a copy to save some time in the next session
+write_rds(median_income, "data-raw/median_income.Rds")
+```
+
+
+# Postal code conversion
+```{r, cache=TRUE}
+postcodes <- read_sav("data-raw/postcodes.sav")
+
+postcode <- postcodes %>% 
+  dplyr::select(PC, CSDuid)
+
+# save a copy to save some time in the next session
+write_rds(postcode, "data-raw/postcode.Rds")
+```
+
+# Merging etc.
+```{r}
+# uncomment below to load external data (when a new R session started)
+device_data <- read_rds("data-raw/scraped-dev.Rds")
+median_income <- read_rds("data-raw/median_income.Rds")
+postcode <- read_rds("data-raw/postcode.Rds")
+
+# for duplicated postcode, only keep the first one.
+# the case when one postcode corresponds to two different CSDuid is very rare, 
+# so the first correspondence is taken by removing duplicates.
+postcode_unique <- distinct(postcode, PC, .keep_all = TRUE)
+
+# merge device with industrial device data
+full_dev <- device %>% 
+  left_join(device_data, by = c("device_name" = "Device name")) %>% 
+  select(-c(Line, Released))
+# save combined device data to data folder
+write_rds(full_dev, "data/full_dev.Rds")
+
+# merge customer data with postcode and then income
+cust_inc <- customer %>%
+  left_join(postcode_unique, by = c("postcode" = "PC")) %>% 
+  left_join(median_income, by = "CSDuid") %>% 
+  dplyr::select(c(cust_id, hhld_median_inc)) %>% 
+  rename("median_inc" = "hhld_median_inc")
+# save customer income data to data folder
+write_rds(cust_inc, "data/cust_inc.Rds")
+
+full_cust <- customer %>% 
+  left_join(cust_inc, by = "cust_id") %>% 
+  left_join(cust_dev, by = "cust_id") %>% 
+  left_join(full_dev, by = "dev_id") %>% 
+  dplyr::select(-c(postcode))
+# save complete customer data to data folder
+write_rds(full_cust, "data/full_cust.Rds")
+
+# merge sleep data with customer data, and translate emoji modifier to race.
+# note that potential limitation arise here given the indirect connection between race and emoji used.
+full_sleep <- cust_sleep %>% 
+  left_join(full_cust, by = "cust_id") %>% 
+  mutate(skin = case_when(emoji_modifier == "U+1F3FF" ~ "dark",
+                          emoji_modifier == "U+1F3FE" ~ "medium-dark",
+                          emoji_modifier == "U+1F3FD" ~ "medium",
+                          emoji_modifier == "U+1F3FC" ~ "medium-light",
+                          emoji_modifier == "U+1F3FB" ~ "light",
+                          is.na(emoji_modifier)       ~ "unknown"))
+# save complete sleep data to data folder
+write_rds(full_sleep, "data/full_sleep.Rds")
+```
+
+
+
+
+
+
+
+
+
+
+
