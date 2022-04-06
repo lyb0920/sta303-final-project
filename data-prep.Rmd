@@ -129,6 +129,16 @@ full_dev <- device %>%
 # save combined device data to data folder
 write_rds(full_dev, "data/full_dev.Rds")
 
+# clean customer data to reclassify missing data
+customer <- customer %>% 
+  mutate(sex = factor(ifelse(is.na(sex) | sex == "Intersex", "Other", sex)),
+         skin = case_when(emoji_modifier == "U+1F3FF" ~ "dark",
+                          emoji_modifier == "U+1F3FE" ~ "medium-dark",
+                          emoji_modifier == "U+1F3FD" ~ "medium",
+                          emoji_modifier == "U+1F3FC" ~ "medium-light",
+                          emoji_modifier == "U+1F3FB" ~ "light",
+                          is.na(emoji_modifier)       ~ "unknown"))
+
 # merge customer data with postcode and then income
 cust_inc <- customer %>%
   left_join(postcode_unique, by = c("postcode" = "PC")) %>% 
@@ -149,13 +159,7 @@ write_rds(full_cust, "data/full_cust.Rds")
 # merge sleep data with customer data, and translate emoji modifier to race.
 # note that potential limitation arise here given the indirect connection between race and emoji used.
 full_sleep <- cust_sleep %>% 
-  left_join(full_cust, by = "cust_id") %>% 
-  mutate(skin = case_when(emoji_modifier == "U+1F3FF" ~ "dark",
-                          emoji_modifier == "U+1F3FE" ~ "medium-dark",
-                          emoji_modifier == "U+1F3FD" ~ "medium",
-                          emoji_modifier == "U+1F3FC" ~ "medium-light",
-                          emoji_modifier == "U+1F3FB" ~ "light",
-                          is.na(emoji_modifier)       ~ "unknown"))
+  left_join(full_cust, by = "cust_id")
 # save complete sleep data to data folder
 write_rds(full_sleep, "data/full_sleep.Rds")
 ```

@@ -32,29 +32,29 @@ knitr::opts_chunk$set(include=FALSE)
 # Q1 
 # read in complete customer data
 full_cust <- read_rds("data/full_cust.Rds")
-# group 'Advance' and 'Active' line together, recode gender, and rescale income, age
+# group 'Advance' and 'Active' line together, and rescale income, age
+# also, regroup the random effect released_year, due to small number of observations and 
+# Active/Advance non-existence before 2019
 cust <- full_cust %>% 
   mutate(y = ifelse(line == "Advance" | line == "Active", 1, 0),
-         gender = factor(ifelse(is.na(sex) | sex == "Intersex", "Other", sex)),
          med_inc_10k = median_inc / 10000,
          released_year = format(as.Date(released), "%Y"),
          released_year = ifelse(as.numeric(released_year) > 2019, released_year, "2019 and before"))
 cust$age <- 1 - scales::rescale(cust$dob)
 
-table(cust$released_year)
-cust %>% group_by(y) %>% summarize(mean(median_inc))
-
 
 # Q2
 # read in the complete sleep data
 full_sleep <- read_rds("data/full_sleep.Rds")
+sleep <- full_sleep %>% 
+  mutate()
 
 ```
 
 ```{r}
 # exploratory plots/tables
 # Q1
-prop.table(table(cust$gender, cust$y), 1)
+prop.table(table(cust$sex, cust$y), 1)
 prop.table(table(cust$released_year, cust$y), 1)
 
 glimpse(cust)
@@ -67,31 +67,31 @@ cust %>%
 
 ```{r}
 # Q1 models
-mod1 <- lme4::glmer(y ~ age + med_inc_10k + gender + 
+mod1 <- lme4::glmer(y ~ age + med_inc_10k + sex + skin +
                       (1 + med_inc_10k + age | released_year), 
                     family = 'binomial', data = cust,
                     control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
 summary(mod1)
 
-mod2 <- lme4::glmer(y ~ age + med_inc_10k + gender + 
+mod2 <- lme4::glmer(y ~ age + med_inc_10k + sex + skin +
                       (1 + med_inc_10k | released_year), 
                     family = 'binomial', data = cust,
                     control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
 summary(mod2)
 
-mod3 <- lme4::glmer(y ~ age + med_inc_10k + gender + 
+mod3 <- lme4::glmer(y ~ age + med_inc_10k + sex + skin +
                       (1 + age | released_year), 
                     family = 'binomial', data = cust,
                     control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
 summary(mod3)
 
-mod4 <- lme4::glmer(y ~ age + med_inc_10k + gender + 
+mod4 <- lme4::glmer(y ~ age + med_inc_10k + sex + skin +
                       (1 | released_year), 
                     family = 'binomial', data = cust,
                     control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
 summary(mod4)
 
-mod5 <- lme4::glmer(y ~ age + med_inc_10k + 
+mod5 <- lme4::glmer(y ~ age + med_inc_10k +
                       (1 + med_inc_10k| released_year), 
                     family = 'binomial', data = cust,
                     control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
