@@ -40,14 +40,20 @@ cust <- full_cust %>%
          med_inc_10k = median_inc / 10000,
          released_year = format(as.Date(released), "%Y"),
          released_year = ifelse(as.numeric(released_year) > 2019, released_year, "2019 and before"))
+# rescale age
 cust$age <- 1 - scales::rescale(cust$dob)
 
 
 # Q2
 # read in the complete sleep data
 full_sleep <- read_rds("data/full_sleep.Rds")
+# refactor line, skin tone, create offset flag for visualizing
 sleep <- full_sleep %>% 
-  mutate()
+  mutate(line = fct_relevel(line, "Run", after = 0),
+         skin = fct_relevel(skin, "light", "medium-light", "medium", "medium-dark", "dark", "unknown", after = 0),
+         flags_per_h = flags / duration * 60)
+# rescale age
+sleep$age <- 1 - scales::rescale(sleep$dob)
 
 ```
 
@@ -57,15 +63,22 @@ sleep <- full_sleep %>%
 prop.table(table(cust$sex, cust$y), 1)
 prop.table(table(cust$released_year, cust$y), 1)
 
-glimpse(cust)
+# visualize by-group relation between median income and new product purchase
 cust %>% 
   ggplot(aes(x = y, y = median_inc, group=y)) +
   facet_grid(~released_year) +
   geom_boxplot() + 
   theme_minimal()
+
+# Q2
+# visualize offset on the number of flags as per 8 hours
+sleep %>%
+  group_by(skin) %>%
+  summarize(mean_count = mean(flags), var_count = var(flags),
+            mean_per_h = mean(flags_per_h), var_per_h = var(flags_per_h), n = n(), .groups = "drop")
 ```
 
-```{r}
+```{r, cache=TRUE}
 # Q1 models
 mod1 <- lme4::glmer(y ~ age + med_inc_10k + sex + skin +
                       (1 + med_inc_10k + age | released_year), 
@@ -113,6 +126,63 @@ lmtest::lrtest(mod6, mod2) # different
 lattice::dotplot(lme4::ranef(mod5, condVar=TRUE)) 
 ```
 
+```{r, cache=TRUE}
+# Q2 models, interaction between fix effects not considered
+model1 <- glmer(flags ~ skin + sex + age + (1 + skin + age | dev_id), family = poisson,
+                offset = log(duration), data = sleep,
+                control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
+summary(model1)
+
+model2 <- glmer(flags ~ skin + sex + age + (1 + age | dev_id), family = poisson,
+                offset = log(duration), data = sleep,
+                control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
+summary(model2)
+
+model3 <- glmer(flags ~ skin + sex + age + (1 | dev_id), family = poisson,
+                offset = log(duration), data = sleep,
+                control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
+summary(model3) # "best"
+
+model4 <- glmer(flags ~ skin + age + (1 | dev_id), family = poisson,
+                offset = log(duration), data = sleep,
+                control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
+summary(model4)
+
+model5 <- glmer(flags ~ skin + sex + (1 | dev_id), family = poisson,
+                offset = log(duration), data = sleep,
+                control=glmerControl(optimizer="bobyqa",  optCtrl=list(maxfun=2e5)))
+summary(model5)
+
+lmtest::lrtest(model2, model1)
+lmtest::lrtest(model3, model1)
+lmtest::lrtest(model4, model3)
+lmtest::lrtest(model5, model3)
+
+# attempted using line as predictor too, removed random effect
+model6 <- glm(flags ~ skin + sex + age + line + skin:age + skin:line + age:skin, family = poisson,
+              offset = log(duration), data = sleep)
+summary(model6)
+
+model7 <- glm(flags ~ skin + sex + age + line + skin:line, family = poisson,
+              offset = log(duration), data = sleep)
+summary(model7)
+
+model8 <- glm(flags ~ skin + sex + age + line, family = poisson,
+              offset = log(duration), data = sleep)
+summary(model8)
+
+model9 <- glm(flags ~ skin + age + line, family = poisson,
+              offset = log(duration), data = sleep)
+summary(model9) # "best"
+
+model10 <- glm(flags ~ skin + age, family = poisson,
+              offset = log(duration), data = sleep)
+summary(model10)
+
+anova(model6, model7, model8, model9, model10, test = "Chisq")
+
+```
+
 \newpage
 # Executive summary
 
@@ -139,6 +209,13 @@ _For each research question, you will want to briefly describe any data manipula
 
 
 ## Informative title for section addressing a research question
+
+\[\begin{aligned}
+Y_{ij} \mid U &\sim Poisson(\mu_{ij}, \theta) \\
+\mu_{ij} &= X_{ij}\beta + U_i \\
+U &\sim \mathrm{MVN}(0, \Sigma)
+\end{aligned}\]
+
 
 
 ## Discussion
